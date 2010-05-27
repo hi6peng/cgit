@@ -468,6 +468,7 @@ div.pager {
 div.pager a {
 	color: #777;
 	margin: 0em 0.5em;
+	display:inline-block;
 }
 
 span.age-mins {
