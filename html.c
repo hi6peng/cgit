@@ -61,9 +61,29 @@ char *fmt(const char *format, ...)
 	return buf[bufidx];
 }
 
+#define A0(d,l,n) (0x80 <= (d[l-n] & 0xff) && (d[l-n] & 0xff) <= 0xbf)
+#define A1(d,l,n) (0x01 <= (d[l-n] & 0xff) && (d[l-n] & 0xff) <= 0x7f)
+#define A2(d,l,n) (0xc0 <= (d[l-n] & 0xff) && (d[l-n] & 0xff) <= 0xdf)
+#define A3(d,l,n) (0xe0 <= (d[l-n] & 0xff) && (d[l-n] & 0xff) <= 0xef)
+#define A4(d,l,n) (0xf0 <= (d[l-n] & 0xff) && (d[l-n] & 0xff) <= 0xff)
+
 void html_raw(const char *data, size_t size)
 {
-	write(htmlfd, data, size);
+	int len = size;
+
+	if (A2(data, len, 1) || A3(data, len, 1) || A4(data, len, 1)) {
+		len = len - 1;
+	}
+
+	if (A3(data, len, 2) || A4(data, len, 2)) {
+		len = len - 2;
+	}
+
+	if (A4(data, len, 3)) {
+		len = len - 3;
+	}
+
+	write(htmlfd, data, len);
 }
 
 void html(const char *txt)
