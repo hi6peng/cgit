@@ -68,7 +68,7 @@ int parse_configfile(const char *filename, configfile_value_fn fn)
 {
 	static int nesting;
 	int len;
-	char line[256];
+	char line[512];
 	const char *value;
 	FILE *f;
 

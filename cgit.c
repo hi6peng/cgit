@@ -472,6 +472,7 @@ static void process_request(void *cbdata)
 		return;
 
 	if (cmd->want_layout) {
+		ctx->page.title = ctx->repo->name;
 		cgit_print_http_headers(ctx);
 		cgit_print_docstart(ctx);
 		cgit_print_pageheader(ctx);
