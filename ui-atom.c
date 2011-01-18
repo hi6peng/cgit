@@ -24,7 +24,7 @@ void add_entry(struct commit *commit, char *host)
 	html_txt(info->subject);
 	html("</title>\n");
 	html("<updated>");
-	cgit_print_date(info->author_date, FMT_ATOMDATE, ctx.cfg.local_time);
+	cgit_print_date(info->committer_date, FMT_ATOMDATE, 0);
 	html("</updated>\n");
 	html("<author>\n");
 	if (info->author) {
@@ -49,7 +49,7 @@ void add_entry(struct commit *commit, char *host)
 	}
 	html("</author>\n");
 	html("<published>");
-	cgit_print_date(info->author_date, FMT_ATOMDATE, ctx.cfg.local_time);
+	cgit_print_date(info->author_date, FMT_ATOMDATE, 0);
 	html("</published>\n");
 	if (host) {
 		html("<link rel='alternate' type='text/html' href='");
@@ -85,7 +85,9 @@ void cgit_print_atom(char *tip, char *path, int max_count)
 	struct rev_info rev;
 	int argc = 2;
 
-	if (!tip)
+	if (ctx.qry.show_all)
+		argv[1] = "--all";
+	else if (!tip)
 		argv[1] = ctx.qry.head;
 
 	if (path) {
@@ -109,6 +111,14 @@ void cgit_print_atom(char *tip, char *path, int max_count)
 	html("<feed xmlns='http://www.w3.org/2005/Atom'>\n");
 	html("<title>");
 	html_txt(ctx.repo->name);
+	if (path) {
+		html("/");
+		html_txt(path);
+	}
+	if (tip && !ctx.qry.show_all) {
+		html(", branch ");
+		html_txt(tip);
+	}
 	html("</title>\n");
 	html("<subtitle>");
 	html_txt(ctx.repo->desc);

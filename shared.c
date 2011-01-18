@@ -10,7 +10,6 @@
 
 struct cgit_repolist cgit_repolist;
 struct cgit_context ctx;
-int cgit_cmd;
 
 int chk_zero(int result, char *msg)
 {
@@ -60,9 +59,10 @@ struct cgit_repo *cgit_add_repo(const char *url)
 	ret->enable_log_filecount = ctx.cfg.enable_log_filecount;
 	ret->enable_log_linecount = ctx.cfg.enable_log_linecount;
 	ret->enable_remote_branches = ctx.cfg.enable_remote_branches;
+	ret->enable_subject_links = ctx.cfg.enable_subject_links;
 	ret->max_stats = ctx.cfg.max_stats;
 	ret->module_link = ctx.cfg.module_link;
-	ret->readme = NULL;
+	ret->readme = ctx.cfg.readme;
 	ret->mtime = -1;
 	ret->about_filter = ctx.cfg.about_filter;
 	ret->commit_filter = ctx.cfg.commit_filter;
@@ -263,7 +263,8 @@ int filediff_cb(void *priv, mmbuffer_t *mb, int nbuf)
 
 int cgit_diff_files(const unsigned char *old_sha1,
 		    const unsigned char *new_sha1, unsigned long *old_size,
-		    unsigned long *new_size, int *binary, linediff_fn fn)
+		    unsigned long *new_size, int *binary, int context,
+		    int ignorews, linediff_fn fn)
 {
 	mmfile_t file1, file2;
 	xpparam_t diff_params;
@@ -279,6 +280,10 @@ int cgit_diff_files(const unsigned char *old_sha1,
 	if ((file1.ptr && buffer_is_binary(file1.ptr, file1.size)) ||
 	    (file2.ptr && buffer_is_binary(file2.ptr, file2.size))) {
 		*binary = 1;
+		if (file1.size)
+			free(file1.ptr);
+		if (file2.size)
+			free(file2.ptr);
 		return 0;
 	}
 
@@ -286,17 +291,23 @@ int cgit_diff_files(const unsigned char *old_sha1,
 	memset(&emit_params, 0, sizeof(emit_params));
 	memset(&emit_cb, 0, sizeof(emit_cb));
 	diff_params.flags = XDF_NEED_MINIMAL;
-	emit_params.ctxlen = 3;
+	if (ignorews)
+		diff_params.flags |= XDF_IGNORE_WHITESPACE;
+	emit_params.ctxlen = context > 0 ? context : 3;
 	emit_params.flags = XDL_EMIT_FUNCNAMES;
 	emit_cb.outf = filediff_cb;
 	emit_cb.priv = fn;
 	xdl_diff(&file1, &file2, &diff_params, &emit_params, &emit_cb);
+	if (file1.size)
+		free(file1.ptr);
+	if (file2.size)
+		free(file2.ptr);
 	return 0;
 }
 
 void cgit_diff_tree(const unsigned char *old_sha1,
 		    const unsigned char *new_sha1,
-		    filepair_fn fn, const char *prefix)
+		    filepair_fn fn, const char *prefix, int ignorews)
 {
 	struct diff_options opt;
 	int ret;
@@ -307,6 +318,8 @@ void cgit_diff_tree(const unsigned char *old_sha1,
 	opt.detect_rename = 1;
 	opt.rename_limit = ctx.cfg.renamelimit;
 	DIFF_OPT_SET(&opt, RECURSIVE);
+	if (ignorews)
+		DIFF_XDL_SET(&opt, IGNORE_WHITESPACE);
 	opt.format_callback = cgit_diff_tree_cb;
 	opt.format_callback_data = fn;
 	if (prefix) {
@@ -325,13 +338,14 @@ void cgit_diff_tree(const unsigned char *old_sha1,
 	diff_flush(&opt);
 }
 
-void cgit_diff_commit(struct commit *commit, filepair_fn fn)
+void cgit_diff_commit(struct commit *commit, filepair_fn fn, const char *prefix)
 {
 	unsigned char *old_sha1 = NULL;
 
 	if (commit->parents)
 		old_sha1 = commit->parents->item->object.sha1;
-	cgit_diff_tree(old_sha1, commit->object.sha1, fn, NULL);
+	cgit_diff_tree(old_sha1, commit->object.sha1, fn, prefix,
+		       ctx.qry.ignorews);
 }
 
 int cgit_parse_snapshots_mask(const char *str)
@@ -422,4 +436,75 @@ int readfile(const char *path, char **buf, size_t *size)
 	(*buf)[*size] = '\0';
 	close(fd);
 	return (*size == st.st_size ? 0 : e);
+}
+
+int is_token_char(char c)
+{
+	return isalnum(c) || c == '_';
+}
+
+/* Replace name with getenv(name), return pointer to zero-terminating char
+ */
+char *expand_macro(char *name, int maxlength)
+{
+	char *value;
+	int len;
+
+	len = 0;
+	value = getenv(name);
+	if (value) {
+		len = strlen(value);
+		if (len > maxlength)
+			len = maxlength;
+		strncpy(name, value, len);
+	}
+	return name + len;
+}
+
+#define EXPBUFSIZE (1024 * 8)
+
+/* Replace all tokens prefixed by '$' in the specified text with the
+ * value of the named environment variable.
+ * NB: the return value is a static buffer, i.e. it must be strdup'd
+ * by the caller.
+ */
+char *expand_macros(const char *txt)
+{
+	static char result[EXPBUFSIZE];
+	char *p, *start;
+	int len;
+
+	p = result;
+	start = NULL;
+	while (p < result + EXPBUFSIZE - 1 && txt && *txt) {
+		*p = *txt;
+		if (start) {
+			if (!is_token_char(*txt)) {
+				if (p - start > 0) {
+					*p = '\0';
+					len = result + EXPBUFSIZE - start - 1;
+					p = expand_macro(start, len) - 1;
+				}
+				start = NULL;
+				txt--;
+			}
+			p++;
+			txt++;
+			continue;
+		}
+		if (*txt == '$') {
+			start = p;
+			txt++;
+			continue;
+		}
+		p++;
+		txt++;
+	}
+	*p = '\0';
+	if (start && p - start > 0) {
+		len = result + EXPBUFSIZE - start - 1;
+		p = expand_macro(start, len);
+		*p = '\0';
+	}
+	return result;
 }

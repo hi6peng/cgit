@@ -1,6 +1,7 @@
 /* cgit.c: cgi for the git scm
  *
  * Copyright (C) 2006 Lars Hjemli
+ * Copyright (C) 2010 Jason A. Donenfeld <Jason@zx2c4.com>
  *
  * Licensed under GNU General Public License v2
  *   (see COPYING for full license text)
@@ -21,7 +22,7 @@ void add_mimetype(const char *name, const char *value)
 {
 	struct string_list_item *item;
 
-	item = string_list_insert(xstrdup(name), &ctx.cfg.mimetypes);
+	item = string_list_insert(&ctx.cfg.mimetypes, xstrdup(name));
 	item->util = xstrdup(value);
 }
 
@@ -62,6 +63,8 @@ void repo_config(struct cgit_repo *repo, const char *name, const char *value)
 		repo->enable_log_linecount = ctx.cfg.enable_log_linecount * atoi(value);
 	else if (!strcmp(name, "enable-remote-branches"))
 		repo->enable_remote_branches = atoi(value);
+	else if (!strcmp(name, "enable-subject-links"))
+		repo->enable_subject_links = atoi(value);
 	else if (!strcmp(name, "max-stats"))
 		repo->max_stats = cgit_find_stats_period(value, NULL);
 	else if (!strcmp(name, "module-link"))
@@ -69,10 +72,7 @@ void repo_config(struct cgit_repo *repo, const char *name, const char *value)
 	else if (!strcmp(name, "section"))
 		repo->section = xstrdup(value);
 	else if (!strcmp(name, "readme") && value != NULL) {
-		if (*value == '/')
-			repo->readme = xstrdup(value);
-		else
-			repo->readme = xstrdup(fmt("%s/%s", repo->path, value));
+		repo->readme = xstrdup(value);
 	} else if (ctx.cfg.enable_filter_overrides) {
 		if (!strcmp(name, "about-filter"))
 			repo->about_filter = new_filter(value, 0);
@@ -93,6 +93,8 @@ void config_cb(const char *name, const char *value)
 		ctx.repo->path = trim_end(value, '/');
 	else if (ctx.repo && !prefixcmp(name, "repo."))
 		repo_config(ctx.repo, name + 5, value);
+	else if (!strcmp(name, "readme"))
+		ctx.cfg.readme = xstrdup(value);
 	else if (!strcmp(name, "root-title"))
 		ctx.cfg.root_title = xstrdup(value);
 	else if (!strcmp(name, "root-desc"))
@@ -119,6 +121,8 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.logo_link = xstrdup(value);
 	else if (!strcmp(name, "module-link"))
 		ctx.cfg.module_link = xstrdup(value);
+	else if (!strcmp(name, "strict-export"))
+		ctx.cfg.strict_export = xstrdup(value);
 	else if (!strcmp(name, "virtual-root")) {
 		ctx.cfg.virtual_root = trim_end(value, '/');
 		if (!ctx.cfg.virtual_root && (!strcmp(value, "/")))
@@ -133,6 +137,8 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.snapshots = cgit_parse_snapshots_mask(value);
 	else if (!strcmp(name, "enable-filter-overrides"))
 		ctx.cfg.enable_filter_overrides = atoi(value);
+	else if (!strcmp(name, "enable-gitweb-owner"))
+		ctx.cfg.enable_gitweb_owner = atoi(value);
 	else if (!strcmp(name, "enable-index-links"))
 		ctx.cfg.enable_index_links = atoi(value);
 	else if (!strcmp(name, "enable-log-filecount"))
@@ -141,6 +147,8 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.enable_log_linecount = atoi(value);
 	else if (!strcmp(name, "enable-remote-branches"))
 		ctx.cfg.enable_remote_branches = atoi(value);
+	else if (!strcmp(name, "enable-subject-links"))
+		ctx.cfg.enable_subject_links = atoi(value);
 	else if (!strcmp(name, "enable-tree-linenumbers"))
 		ctx.cfg.enable_tree_linenumbers = atoi(value);
 	else if (!strcmp(name, "max-stats"))
@@ -148,7 +156,7 @@ void config_cb(const char *name, const char *value)
 	else if (!strcmp(name, "cache-size"))
 		ctx.cfg.cache_size = atoi(value);
 	else if (!strcmp(name, "cache-root"))
-		ctx.cfg.cache_root = xstrdup(value);
+		ctx.cfg.cache_root = xstrdup(expand_macros(value));
 	else if (!strcmp(name, "cache-root-ttl"))
 		ctx.cfg.cache_root_ttl = atoi(value);
 	else if (!strcmp(name, "cache-repo-ttl"))
@@ -165,6 +173,8 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.commit_filter = new_filter(value, 0);
 	else if (!strcmp(name, "embedded"))
 		ctx.cfg.embedded = atoi(value);
+	else if (!strcmp(name, "max-atom-items"))
+		ctx.cfg.max_atom_items = atoi(value);
 	else if (!strcmp(name, "max-message-length"))
 		ctx.cfg.max_msg_len = atoi(value);
 	else if (!strcmp(name, "max-repodesc-length"))
@@ -175,11 +185,18 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.max_repo_count = atoi(value);
 	else if (!strcmp(name, "max-commit-count"))
 		ctx.cfg.max_commit_count = atoi(value);
+	else if (!strcmp(name, "project-list"))
+		ctx.cfg.project_list = xstrdup(expand_macros(value));
 	else if (!strcmp(name, "scan-path"))
 		if (!ctx.cfg.nocache && ctx.cfg.cache_size)
-			process_cached_repolist(value);
+			process_cached_repolist(expand_macros(value));
+		else if (ctx.cfg.project_list)
+			scan_projects(expand_macros(value),
+				      ctx.cfg.project_list, repo_config);
 		else
-			scan_tree(value, repo_config);
+			scan_tree(expand_macros(value), repo_config);
+	else if (!strcmp(name, "section-from-path"))
+		ctx.cfg.section_from_path = atoi(value);
 	else if (!strcmp(name, "source-filter"))
 		ctx.cfg.source_filter = new_filter(value, 1);
 	else if (!strcmp(name, "summary-log"))
@@ -194,6 +211,8 @@ void config_cb(const char *name, const char *value)
 		ctx.cfg.agefile = xstrdup(value);
 	else if (!strcmp(name, "renamelimit"))
 		ctx.cfg.renamelimit = atoi(value);
+	else if (!strcmp(name, "remove-suffix"))
+		ctx.cfg.remove_suffix = atoi(value);
 	else if (!strcmp(name, "robots"))
 		ctx.cfg.robots = xstrdup(value);
 	else if (!strcmp(name, "clone-prefix"))
@@ -203,7 +222,7 @@ void config_cb(const char *name, const char *value)
 	else if (!prefixcmp(name, "mimetype."))
 		add_mimetype(name + 9, value);
 	else if (!strcmp(name, "include"))
-		parse_configfile(value, config_cb);
+		parse_configfile(expand_macros(value), config_cb);
 }
 
 static void querystring_cb(const char *name, const char *value)
@@ -250,6 +269,12 @@ static void querystring_cb(const char *name, const char *value)
 		ctx.qry.period = xstrdup(value);
 	} else if (!strcmp(name, "ss")) {
 		ctx.qry.ssdiff = atoi(value);
+	} else if (!strcmp(name, "all")) {
+		ctx.qry.show_all = atoi(value);
+	} else if (!strcmp(name, "context")) {
+		ctx.qry.context = atoi(value);
+	} else if (!strcmp(name, "ignorews")) {
+		ctx.qry.ignorews = atoi(value);
 	}
 }
 
@@ -274,6 +299,7 @@ static void prepare_context(struct cgit_context *ctx)
 	ctx->cfg.css = "/cgit.css";
 	ctx->cfg.logo = "/cgit.png";
 	ctx->cfg.local_time = 0;
+	ctx->cfg.enable_gitweb_owner = 1;
 	ctx->cfg.enable_tree_linenumbers = 1;
 	ctx->cfg.max_repo_count = 50;
 	ctx->cfg.max_commit_count = 50;
@@ -283,7 +309,9 @@ static void prepare_context(struct cgit_context *ctx)
 	ctx->cfg.max_blob_size = 0;
 	ctx->cfg.max_stats = 0;
 	ctx->cfg.module_link = "./?repo=%s&page=commit&id=%s";
+	ctx->cfg.project_list = NULL;
 	ctx->cfg.renamelimit = -1;
+	ctx->cfg.remove_suffix = 0;
 	ctx->cfg.robots = "index, nofollow";
 	ctx->cfg.root_title = "Git repository browser";
 	ctx->cfg.root_desc = "a fast webinterface for the git dscm";
@@ -292,6 +320,7 @@ static void prepare_context(struct cgit_context *ctx)
 	ctx->cfg.summary_branches = 10;
 	ctx->cfg.summary_log = 10;
 	ctx->cfg.summary_tags = 10;
+	ctx->cfg.max_atom_items = 10;
 	ctx->cfg.ssdiff = 0;
 	ctx->env.cgit_config = xstrdupn(getenv("CGIT_CONFIG"));
 	ctx->env.http_host = xstrdupn(getenv("HTTP_HOST"));
@@ -424,6 +453,12 @@ static void process_request(void *cbdata)
 		return;
 	}
 
+	/* If cmd->want_vpath is set, assume ctx->qry.path contains a "virtual"
+	 * in-project path limit to be made available at ctx->qry.vpath.
+	 * Otherwise, no path limit is in effect (ctx->qry.vpath = NULL).
+	 */
+	ctx->qry.vpath = cmd->want_vpath ? ctx->qry.path : NULL;
+
 	if (cmd->want_repo && !ctx->repo) {
 		cgit_print_http_headers(ctx);
 		cgit_print_docstart(ctx);
@@ -555,7 +590,10 @@ static int generate_cached_repolist(const char *path, const char *cached_rc)
 		return errno;
 	}
 	idx = cgit_repolist.count;
-	scan_tree(path, repo_config);
+	if (ctx.cfg.project_list)
+		scan_projects(path, ctx.cfg.project_list, repo_config);
+	else
+		scan_tree(path, repo_config);
 	print_repolist(f, &cgit_repolist, idx);
 	if (rename(locked_rc, cached_rc))
 		fprintf(stderr, "[cgit] Error renaming %s to %s: %s (%d)\n",
@@ -569,17 +607,25 @@ static void process_cached_repolist(const char *path)
 	struct stat st;
 	char *cached_rc;
 	time_t age;
+	unsigned long hash;
 
-	cached_rc = xstrdup(fmt("%s/rc-%8x", ctx.cfg.cache_root,
-		hash_str(path)));
+	hash = hash_str(path);
+	if (ctx.cfg.project_list)
+		hash += hash_str(ctx.cfg.project_list);
+	cached_rc = xstrdup(fmt("%s/rc-%8lx", ctx.cfg.cache_root, hash));
 
 	if (stat(cached_rc, &st)) {
 		/* Nothing is cached, we need to scan without forking. And
 		 * if we fail to generate a cached repolist, we need to
 		 * invoke scan_tree manually.
 		 */
-		if (generate_cached_repolist(path, cached_rc))
-			scan_tree(path, repo_config);
+		if (generate_cached_repolist(path, cached_rc)) {
+			if (ctx.cfg.project_list)
+				scan_projects(path, ctx.cfg.project_list,
+					      repo_config);
+			else
+				scan_tree(path, repo_config);
+		}
 		return;
 	}
 
@@ -688,7 +734,7 @@ int main(int argc, const char **argv)
 	cgit_repolist.repos = NULL;
 
 	cgit_parse_args(argc, argv);
-	parse_configfile(ctx.env.cgit_config, config_cb);
+	parse_configfile(expand_macros(ctx.env.cgit_config), config_cb);
 	ctx.repo = NULL;
 	http_parse_querystring(ctx.qry.raw, querystring_cb);
 

@@ -19,6 +19,7 @@
 #include <xdiff-interface.h>
 #include <xdiff/xdiff.h>
 #include <utf8.h>
+#include <notes.h>
 
 
 /*
@@ -73,6 +74,7 @@ struct cgit_repo {
 	int enable_log_filecount;
 	int enable_log_linecount;
 	int enable_remote_branches;
+	int enable_subject_links;
 	int max_stats;
 	time_t mtime;
 	struct cgit_filter *about_filter;
@@ -145,6 +147,10 @@ struct cgit_query {
 	char *sort;
 	int showmsg;
 	int ssdiff;
+	int show_all;
+	int context;
+	int ignorews;
+	char *vpath;
 };
 
 struct cgit_config {
@@ -161,6 +167,8 @@ struct cgit_config {
 	char *logo;
 	char *logo_link;
 	char *module_link;
+	char *project_list;
+	char *readme;
 	char *robots;
 	char *root_title;
 	char *root_desc;
@@ -168,6 +176,7 @@ struct cgit_config {
 	char *script_name;
 	char *section;
 	char *virtual_root;
+	char *strict_export;
 	int cache_size;
 	int cache_dynamic_ttl;
 	int cache_max_create_time;
@@ -177,12 +186,15 @@ struct cgit_config {
 	int cache_static_ttl;
 	int embedded;
 	int enable_filter_overrides;
+	int enable_gitweb_owner;
 	int enable_index_links;
 	int enable_log_filecount;
 	int enable_log_linecount;
 	int enable_remote_branches;
+	int enable_subject_links;
 	int enable_tree_linenumbers;
 	int local_time;
+	int max_atom_items;
 	int max_repo_count;
 	int max_commit_count;
 	int max_lock_attempts;
@@ -194,6 +206,8 @@ struct cgit_config {
 	int noplainemail;
 	int noheader;
 	int renamelimit;
+	int remove_suffix;
+	int section_from_path;
 	int snapshots;
 	int summary_branches;
 	int summary_log;
@@ -273,14 +287,17 @@ extern void *cgit_free_commitinfo(struct commitinfo *info);
 extern int cgit_diff_files(const unsigned char *old_sha1,
 			   const unsigned char *new_sha1,
 			   unsigned long *old_size, unsigned long *new_size,
-			   int *binary, linediff_fn fn);
+			   int *binary, int context, int ignorews,
+			   linediff_fn fn);
 
 extern void cgit_diff_tree(const unsigned char *old_sha1,
 			   const unsigned char *new_sha1,
-			   filepair_fn fn, const char *prefix);
+			   filepair_fn fn, const char *prefix, int ignorews);
 
-extern void cgit_diff_commit(struct commit *commit, filepair_fn fn);
+extern void cgit_diff_commit(struct commit *commit, filepair_fn fn,
+			     const char *prefix);
 
+__attribute__((format (printf,1,2)))
 extern char *fmt(const char *format,...);
 
 extern struct commitinfo *cgit_parse_commit(struct commit *commit);
@@ -295,5 +312,7 @@ extern int cgit_open_filter(struct cgit_filter *filter);
 extern int cgit_close_filter(struct cgit_filter *filter);
 
 extern int readfile(const char *path, char **buf, size_t *size);
+
+extern char *expand_macros(const char *txt);
 
 #endif /* CGIT_H */

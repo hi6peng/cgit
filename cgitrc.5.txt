@@ -95,6 +95,11 @@ enable-filter-overrides::
 	Flag which, when set to "1", allows all filter settings to be
 	overridden in repository-specific cgitrc files. Default value: none.
 
+enable-gitweb-owner::
+	If set to "1" and scan-path is enabled, we first check each repository
+	for the git config value "gitweb.owner" to determine the owner.
+	Default value: "1". See also: scan-path.
+
 enable-index-links::
 	Flag which, when set to "1", will make cgit generate extra links for
 	each repo in the repository index (specifically, to the "summary",
@@ -114,6 +119,12 @@ enable-remote-branches::
 	Flag which, when set to "1", will make cgit display remote branches
 	in the summary and refs views. Default value: "0". See also:
 	"repo.enable-remote-branches".
+
+enable-subject-links::
+	Flag which, when set to "1", will make cgit use the subject of the
+	parent commit as link text when generating links to parent commits
+	in commit view. Default value: "0". See also:
+	"repo.enable-subject-links".
 
 enable-tree-linenumbers::
 	Flag which, when set to "1", will make cgit generate linenumber links
@@ -166,6 +177,10 @@ logo-link::
 	calculated url of the repository index page will be used. Default
 	value: none.
 
+max-atom-items::
+	Specifies the number of items to display in atom feeds view. Default
+	value: "10".
+
 max-commit-count::
 	Specifies the number of entries to list per page in "log" view. Default
 	value: "50".
@@ -214,6 +229,20 @@ noheader::
 	Flag which, when set to "1", will make cgit omit the standard header
 	on all pages. Default value: none. See also: "embedded".
 
+project-list::
+	A list of subdirectories inside of scan-path, relative to it, that
+	should loaded as git repositories. This must be defined prior to
+	scan-path. Default value: none. See also: scan-path.
+
+readme::
+	Text which will be used as default value for "repo.readme". Default
+	value: none.
+
+remove-suffix::
+	If set to "1" and scan-path is enabled, if any repositories are found
+	with a suffix of ".git", this suffix will be removed for the url and
+	name. Default value: "0". See also: scan-path.
+
 renamelimit::
 	Maximum number of files to consider when detecting renames. The value
 	 "-1" uses the compiletime value in git (for further info, look at
@@ -243,12 +272,21 @@ root-title::
 scan-path::
 	A path which will be scanned for repositories. If caching is enabled,
 	the result will be cached as a cgitrc include-file in the cache
-	directory. Default value: none. See also: cache-scanrc-ttl.
+	directory. If project-list has been defined prior to scan-path,
+	scan-path loads only the directories listed in the file pointed to by
+	project-list. Default value: none. See also: cache-scanrc-ttl,
+	project-list.
 
 section::
 	The name of the current repository section - all repositories defined
 	after this option will inherit the current section name. Default value:
 	none.
+
+section-from-path::
+	A number which, if specified before scan-path, specifies how many
+	path elements from each repo path to use as a default section name.
+	If negative, cgit will discard the specified number of path elements
+	above the repo directory. Default value: 0.
 
 side-by-side-diffs::
 	If set to "1" shows side-by-side diffs instead of unidiffs per
@@ -278,6 +316,13 @@ summary-log::
 summary-tags::
 	Specifies the number of tags to display in the repository "summary"
 	view. Default value: "10".
+
+strict-export::
+	Filename which, if specified, needs to be present within the repository
+	for cgit to allow access to that repository. This can be used to emulate
+	gitweb's EXPORT_OK and STRICT_EXPORT functionality and limit cgit's
+	repositories to match those exported by git-daemon. This option MUST come
+	before 'scan-path'.
 
 virtual-root::
 	Url which, if specified, will be used as root for all cgit links. It
@@ -321,6 +366,10 @@ repo.enable-remote-branches::
 	Flag which, when set to "1", will make cgit display remote branches
 	in the summary and refs views. Default value: <enable-remote-branches>.
 
+repo.enable-subject-links::
+	A flag which can be used to override the global setting
+	`enable-subject-links'. Default value: none.
+
 repo.max-stats::
 	Override the default maximum statistics period. Valid values are equal
 	to the values specified for the global "max-stats" setting. Default
@@ -339,7 +388,9 @@ repo.path::
 
 repo.readme::
 	A path (relative to <repo.path>) which specifies a file to include
-	verbatim as the "About" page for this repo. Default value: none.
+	verbatim as the "About" page for this repo. You may also specify a
+	git refspec by head or by hash by prepending the refspec followed by
+	a colon. For example, "master:docs/readme.mkd" Default value: <readme>.
 
 repo.snapshots::
 	A mask of allowed snapshot-formats for this repo, restricted by the
@@ -380,7 +431,7 @@ cache-size=1000
 
 
 # Specify some default clone prefixes
-clone-prefix=git://foobar.com ssh://foobar.com/pub/git http://foobar.com/git
+clone-prefix=git://example.com ssh://example.com/pub/git http://example.com/git
 
 # Specify the css url
 css=/css/cgit.css
@@ -411,14 +462,14 @@ max-stats=quarter
 
 
 # Set the title and heading of the repository index page
-root-title=foobar.com git repositories
+root-title=example.com git repositories
 
 
 # Set a subheading for the repository index page
 root-desc=tracking the foobar development
 
 
-# Include some more info about foobar.com on the index page
+# Include some more info about example.com on the index page
 root-readme=/var/www/htdocs/about.html
 
 
@@ -430,7 +481,7 @@ snapshots=tar.gz tar.bz2 zip
 ## List of common mimetypes
 ##
 
-mimetype.git=image/git
+mimetype.gif=image/gif
 mimetype.html=text/html
 mimetype.jpg=image/jpeg
 mimetype.jpeg=image/jpeg
@@ -452,14 +503,14 @@ mimetype.svg=image/svg+xml
 repo.url=foo
 repo.path=/pub/git/foo.git
 repo.desc=the master foo repository
-repo.owner=fooman@foobar.com
+repo.owner=fooman@example.com
 repo.readme=info/web/about.html
 
 
 repo.url=bar
 repo.path=/pub/git/bar.git
 repo.desc=the bars for your foo
-repo.owner=barman@foobar.com
+repo.owner=barman@example.com
 repo.readme=info/web/about.html
 
 
@@ -516,3 +567,4 @@ will generate the following html element:
 AUTHOR
 ------
 Lars Hjemli <hjemli@gmail.com>
+Jason A. Donenfeld <Jason@zx2c4.com>

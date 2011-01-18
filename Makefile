@@ -1,13 +1,25 @@
-CGIT_VERSION = v0.8.3.1
+CGIT_VERSION = v0.8.3.4
 CGIT_SCRIPT_NAME = cgit.cgi
 CGIT_SCRIPT_PATH = /var/www/htdocs/cgit
 CGIT_DATA_PATH = $(CGIT_SCRIPT_PATH)
 CGIT_CONFIG = /etc/cgitrc
 CACHE_ROOT = /var/cache/cgit
+prefix = /usr
+libdir = $(prefix)/lib
+filterdir = $(libdir)/cgit/filters
+docdir = $(prefix)/share/doc/cgit
+htmldir = $(docdir)
+pdfdir = $(docdir)
+mandir = $(prefix)/share/man
 SHA1_HEADER = <openssl/sha.h>
-GIT_VER = 1.7.0
+GIT_VER = 1.7.3
 GIT_URL = http://www.kernel.org/pub/software/scm/git/git-$(GIT_VER).tar.bz2
 INSTALL = install
+MAN5_TXT = $(wildcard *.5.txt)
+MAN_TXT  = $(MAN5_TXT)
+DOC_MAN5 = $(patsubst %.txt,%,$(MAN5_TXT))
+DOC_HTML = $(patsubst %.txt,%.html,$(MAN_TXT))
+DOC_PDF  = $(patsubst %.txt,%.pdf,$(MAN_TXT))
 
 # Define NO_STRCASESTR if you don't have strcasestr.
 #
@@ -15,6 +27,11 @@ INSTALL = install
 # implementation (slower).
 #
 # Define NEEDS_LIBICONV if linking with libc is not enough (eg. Darwin).
+#
+# Define NO_C99_FORMAT if your formatted IO functions (printf/scanf et.al.)
+# do not support the 'size specifiers' introduced by C99, namely ll, hh,
+# j, z, t. (representing long long int, char, intmax_t, size_t, ptrdiff_t).
+# some C compilers supported these specifiers prior to C99 as an extension.
 #
 
 #-include config.mak
@@ -62,7 +79,7 @@ endif
 # Define a pattern rule for automatic dependency building
 #
 %.d: %.c
-	$(QUIET_MM)$(CC) $(CFLAGS) -MM $< | sed -e 's/\($*\)\.o:/\1.o $@:/g' >$@
+	$(QUIET_MM)$(CC) $(CFLAGS) -MM -MP $< | sed -e 's/\($*\)\.o:/\1.o $@:/g' >$@
 
 #
 # Define a pattern rule for silent object building
@@ -71,7 +88,7 @@ endif
 	$(QUIET_CC)$(CC) -o $*.o -c $(CFLAGS) $<
 
 
-EXTLIBS = git/libgit.a git/xdiff/lib.a -lz
+EXTLIBS = git/libgit.a git/xdiff/lib.a -lz -lpthread
 OBJECTS =
 OBJECTS += cache.o
 OBJECTS += cgit.o
@@ -105,7 +122,8 @@ endif
 
 
 .PHONY: all libgit test install uninstall clean force-version get-git \
-	doc man-doc html-doc clean-doc
+	doc clean-doc install-doc install-man install-html install-pdf \
+	uninstall-doc uninstall-man uninstall-html uninstall-pdf
 
 all: cgit
 
@@ -121,11 +139,16 @@ CFLAGS += -DCGIT_CONFIG='"$(CGIT_CONFIG)"'
 CFLAGS += -DCGIT_SCRIPT_NAME='"$(CGIT_SCRIPT_NAME)"'
 CFLAGS += -DCGIT_CACHE_ROOT='"$(CACHE_ROOT)"'
 
+GIT_OPTIONS = prefix=/usr
+
 ifdef NO_ICONV
 	CFLAGS += -DNO_ICONV
 endif
 ifdef NO_STRCASESTR
 	CFLAGS += -DNO_STRCASESTR
+endif
+ifdef NO_C99_FORMAT
+	CFLAGS += -DNO_C99_FORMAT
 endif
 ifdef NO_OPENSSL
 	CFLAGS += -DNO_OPENSSL
@@ -139,7 +162,9 @@ cgit: $(OBJECTS) libgit
 
 cgit.o: VERSION
 
--include $(OBJECTS:.o=.d)
+ifneq "$(MAKECMDGOALS)" "clean"
+  -include $(OBJECTS:.o=.d)
+endif
 
 libgit:
 	$(QUIET_SUBDIR0)git $(QUIET_SUBDIR1) NO_CURL=1 $(GIT_OPTIONS) libgit.a
@@ -154,21 +179,58 @@ install: all
 	$(INSTALL) -m 0755 -d $(DESTDIR)$(CGIT_DATA_PATH)
 	$(INSTALL) -m 0644 cgit.css $(DESTDIR)$(CGIT_DATA_PATH)/cgit.css
 	$(INSTALL) -m 0644 cgit.png $(DESTDIR)$(CGIT_DATA_PATH)/cgit.png
+	$(INSTALL) -m 0755 -d $(DESTDIR)$(filterdir)
+	$(INSTALL) -m 0755 filters/* $(DESTDIR)$(filterdir)
+
+install-doc: install-man install-html install-pdf
+
+install-man: doc-man
+	$(INSTALL) -m 0755 -d $(DESTDIR)$(mandir)/man5
+	$(INSTALL) -m 0644 $(DOC_MAN5) $(DESTDIR)$(mandir)/man5
+
+install-html: doc-html
+	$(INSTALL) -m 0755 -d $(DESTDIR)$(htmldir)
+	$(INSTALL) -m 0644 $(DOC_HTML) $(DESTDIR)$(htmldir)
+
+install-pdf: doc-pdf
+	$(INSTALL) -m 0755 -d $(DESTDIR)$(pdfdir)
+	$(INSTALL) -m 0644 $(DOC_PDF) $(DESTDIR)$(pdfdir)
 
 uninstall:
 	rm -f $(CGIT_SCRIPT_PATH)/$(CGIT_SCRIPT_NAME)
 	rm -f $(CGIT_DATA_PATH)/cgit.css
 	rm -f $(CGIT_DATA_PATH)/cgit.png
 
-doc: man-doc html-doc pdf-doc
+uninstall-doc: uninstall-man uninstall-html uninstall-pdf
 
-man-doc: cgitrc.5.txt
-	a2x -f manpage cgitrc.5.txt
+uninstall-man:
+	@for i in $(DOC_MAN5); do \
+	    rm -fv $(DESTDIR)$(mandir)/man5/$$i; \
+	done
 
-html-doc: cgitrc.5.txt
-	a2x -f xhtml --stylesheet=cgit-doc.css cgitrc.5.txt
+uninstall-html:
+	@for i in $(DOC_HTML); do \
+	    rm -fv $(DESTDIR)$(htmldir)/$$i; \
+	done
 
-pdf-doc: cgitrc.5.txt
+uninstall-pdf:
+	@for i in $(DOC_PDF); do \
+	    rm -fv $(DESTDIR)$(pdfdir)/$$i; \
+	done
+
+doc: doc-man doc-html doc-pdf
+doc-man: doc-man5
+doc-man5: $(DOC_MAN5)
+doc-html: $(DOC_HTML)
+doc-pdf: $(DOC_PDF)
+
+%.5 : %.5.txt
+	a2x -f manpage $<
+
+$(DOC_HTML): %.html : %.txt
+	a2x -f xhtml --stylesheet=cgit-doc.css $<
+
+$(DOC_PDF): %.pdf : %.txt
 	a2x -f pdf cgitrc.5.txt
 
 clean: clean-doc

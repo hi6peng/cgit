@@ -1,6 +1,7 @@
 /* ui-summary.c: functions for generating repo summary page
  *
  * Copyright (C) 2006 Lars Hjemli
+ * Copyright (C) 2010 Jason A. Donenfeld <Jason@zx2c4.com>
  *
  * Licensed under GNU General Public License v2
  *   (see COPYING for full license text)
@@ -10,6 +11,7 @@
 #include "html.h"
 #include "ui-log.h"
 #include "ui-refs.h"
+#include "ui-blob.h"
 
 int urls = 0;
 
@@ -68,24 +70,54 @@ void cgit_print_summary()
 
 void cgit_print_repo_readme(char *path)
 {
-	char *slash, *tmp;
+	char *slash, *tmp, *colon, *ref;
 
-	if (!ctx.repo->readme)
+	if (!ctx.repo->readme || !(*ctx.repo->readme))
 		return;
 
+	ref = NULL;
+
+	/* Check if the readme is tracked in the git repo. */
+	colon = strchr(ctx.repo->readme, ':');
+	if (colon && strlen(colon) > 1) {
+		*colon = '\0';
+		ref = ctx.repo->readme;
+		ctx.repo->readme = colon + 1;
+		if (!(*ctx.repo->readme))
+			return;
+	}
+
+	/* Prepend repo path to relative readme path unless tracked. */
+	if (!ref && *ctx.repo->readme != '/')
+		ctx.repo->readme = xstrdup(fmt("%s/%s", ctx.repo->path,
+					       ctx.repo->readme));
+
+	/* If a subpath is specified for the about page, make it relative
+	 * to the directory containing the configured readme.
+	 */
 	if (path) {
 		slash = strrchr(ctx.repo->readme, '/');
-		if (!slash)
-			return;
+		if (!slash) {
+			if (!colon)
+				return;
+			slash = colon;
+		}
 		tmp = xmalloc(slash - ctx.repo->readme + 1 + strlen(path) + 1);
 		strncpy(tmp, ctx.repo->readme, slash - ctx.repo->readme + 1);
 		strcpy(tmp + (slash - ctx.repo->readme + 1), path);
 	} else
 		tmp = ctx.repo->readme;
+
+	/* Print the calculated readme, either from the git repo or from the
+	 * filesystem, while applying the about-filter.
+	 */
 	html("<div id='summary'>");
 	if (ctx.repo->about_filter)
 		cgit_open_filter(ctx.repo->about_filter);
-	html_include(tmp);
+	if (ref)
+		cgit_print_file(tmp, ref);
+	else
+		html_include(tmp);
 	if (ctx.repo->about_filter)
 		cgit_close_filter(ctx.repo->about_filter);
 	html("</div>");
